@@ -6,7 +6,7 @@ import json
 import os
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
-from langchain.schema import Document
+from langchain_core.documents import Document
 
 COLLECTION_PATH = "collection.json"
 VECTORSTORE_PATH = "./vectorstore"
@@ -151,8 +151,8 @@ def main():
     print("(Using local HuggingFace embeddings - no API key needed for this step)")
     
     embeddings = HuggingFaceEmbeddings(
-        model_name="all-MiniLM-L6-v2"  # Fast, good quality, runs locally
-    )
+        model_name="BAAI/bge-large-en-v1.5",
+          encode_kwargs={'normalize_embeddings': True})
     
     # Clear existing vectorstore
     if os.path.exists(VECTORSTORE_PATH):

@@ -5,8 +5,13 @@ RAG chain for querying API documentation.
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_anthropic import ChatAnthropic
 from langchain_community.vectorstores import Chroma
-from langchain.prompts import ChatPromptTemplate
-from langchain.schema.runnable import RunnablePassthrough
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnablePassthrough
+import os
+from dotenv import load_dotenv
+from langchain_community.embeddings import HuggingFaceBgeEmbeddings
+
+load_dotenv()
 
 VECTORSTORE_PATH = "./vectorstore"
 
@@ -32,7 +37,10 @@ Answer:"""
 
 def get_vectorstore():
     """Load the existing vectorstore."""
-    embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+    embeddings = HuggingFaceBgeEmbeddings(
+    model_name="BAAI/bge-large-en-v1.5",
+    encode_kwargs={'normalize_embeddings': True},
+    query_instruction="Represent this sentence for searching relevant passages: ")
     return Chroma(
         persist_directory=VECTORSTORE_PATH,
         embedding_function=embeddings
@@ -54,10 +62,14 @@ def get_chain():
     vectorstore = get_vectorstore()
     retriever = vectorstore.as_retriever(
         search_type="similarity",
-        search_kwargs={"k": 5}  # Retrieve top 5 relevant chunks
+        search_kwargs={"k": 10}  # Retrieve top 5 relevant chunks
     )
     
-    llm = ChatAnthropic(model="claude-sonnet-4-20250514", temperature=0)
+    llm = ChatAnthropic(
+        model="claude-sonnet-4-20250514",
+        temperature=0,
+        api_key=os.environ.get("ANTHROPIC_API_KEY")
+        )
     
     prompt = ChatPromptTemplate.from_template(SYSTEM_PROMPT)
     
