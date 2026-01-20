@@ -10,6 +10,7 @@ from langchain_core.runnables import RunnablePassthrough
 import os
 from dotenv import load_dotenv
 from langchain_community.embeddings import HuggingFaceBgeEmbeddings
+from sentence_transformers import CrossEncoder
 
 load_dotenv()
 
@@ -34,13 +35,37 @@ Question: {question}
 
 Answer:"""
 
+# Load reranker model (do this once, outside the function)
+reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-12-v2')
+
+def rerank_docs(query, docs, top_k=5):
+    """Rerank documents using cross-encoder."""
+    if not docs:
+        return docs
+    
+    # Score each doc
+    pairs = [[query, doc.page_content] for doc in docs]
+    scores = reranker.predict(pairs)
+
+    print("\n=== RERANKING ===")
+    print(f"Query: {query}")
+    for score, doc in sorted(zip(scores, docs), key=lambda x: x[0], reverse=True):
+        name = doc.metadata.get('name', 'Unknown')
+        print(f"  {score:.4f} - {name}")
+        
+    # Sort by score, return top_k
+    scored_docs = list(zip(scores, docs))
+    scored_docs.sort(key=lambda x: x[0], reverse=True)
+    
+    return [doc for score, doc in scored_docs[:top_k]]
 
 def get_vectorstore():
     """Load the existing vectorstore."""
     embeddings = HuggingFaceBgeEmbeddings(
-    model_name="BAAI/bge-large-en-v1.5",
-    encode_kwargs={'normalize_embeddings': True},
-    query_instruction="Represent this sentence for searching relevant passages: ")
+        model_name="BAAI/bge-large-en-v1.5",
+        encode_kwargs={'normalize_embeddings': True},
+        query_instruction="Represent this sentence for searching relevant passages: "
+    )
     return Chroma(
         persist_directory=VECTORSTORE_PATH,
         embedding_function=embeddings
@@ -62,36 +87,39 @@ def get_chain():
     vectorstore = get_vectorstore()
     retriever = vectorstore.as_retriever(
         search_type="similarity",
-        search_kwargs={"k": 10}  # Retrieve top 5 relevant chunks
+        search_kwargs={"k": 20}  # Retrieve 20, rerank to top 5
     )
     
     llm = ChatAnthropic(
         model="claude-sonnet-4-20250514",
         temperature=0,
         api_key=os.environ.get("ANTHROPIC_API_KEY")
-        )
+    )
     
     prompt = ChatPromptTemplate.from_template(SYSTEM_PROMPT)
     
-    chain = (
-        {"context": retriever | format_docs, "question": RunnablePassthrough()}
-        | prompt
-        | llm
-    )
-    
-    return chain, retriever
+    return retriever, prompt, llm
 
 
 def query(question: str):
-    """Query the documentation."""
-    chain, retriever = get_chain()
+    """Query the documentation with reranking."""
+    retriever, prompt, llm = get_chain()
     
-    # Get answer
-    response = chain.invoke(question)
-    
-    # Get sources for display
+    # Step 1: Retrieve top 20
     docs = retriever.invoke(question)
-    sources = [doc.metadata.get('path', doc.metadata.get('name', 'Unknown')) for doc in docs]
+    
+    # Step 2: Rerank to top 5
+    reranked_docs = rerank_docs(question, docs, top_k=5)
+    
+    # Step 3: Format context
+    context = format_docs(reranked_docs)
+    
+    # Step 4: Generate answer
+    formatted_prompt = prompt.format(context=context, question=question)
+    response = llm.invoke(formatted_prompt)
+    
+    # Get sources from reranked docs
+    sources = [doc.metadata.get('path', doc.metadata.get('name', 'Unknown')) for doc in reranked_docs]
     
     return {
         "answer": response.content,
