@@ -3,7 +3,7 @@ Streamlit UI for the API Documentation Assistant.
 """
 
 import streamlit as st
-from chain import get_chain, get_vectorstore
+from chain import query
 
 st.set_page_config(
     page_title="TMO API Assistant",
@@ -17,17 +17,6 @@ st.caption("Ask questions about The Mortgage Office API")
 # Initialize chat history
 if "messages" not in st.session_state:
     st.session_state.messages = []
-
-# Initialize chain (cached)
-@st.cache_resource
-def load_chain():
-    return get_chain()
-
-try:
-    chain, retriever = load_chain()
-except Exception as e:
-    st.error(f"Error loading vectorstore. Did you run `python ingest.py` first?\n\nError: {e}")
-    st.stop()
 
 # Display chat history
 for message in st.session_state.messages:
@@ -48,19 +37,11 @@ if prompt := st.chat_input("Ask about the TMO API..."):
     # Generate response
     with st.chat_message("assistant"):
         with st.spinner("Searching documentation..."):
-            # Get answer
-            response = chain.invoke(prompt)
-            answer = response.content
-            
-            # Get sources
-            docs = retriever.invoke(prompt)
-            sources = list(set([
-                doc.metadata.get('path', doc.metadata.get('name', 'Unknown')) 
-                for doc in docs
-            ]))
-            
+            result = query(prompt)
+            answer = result["answer"]
+            sources = result["sources"]
             st.markdown(answer)
-            
+                        
             with st.expander("📄 Sources"):
                 for source in sources:
                     st.write(f"- {source}")
