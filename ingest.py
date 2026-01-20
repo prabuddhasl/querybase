@@ -11,6 +11,35 @@ from langchain_core.documents import Document
 COLLECTION_PATH = "collection.json"
 VECTORSTORE_PATH = "./vectorstore"
 
+def split_overview(info):
+    """Split overview into logical sections."""
+    documents = []
+    description = info.get("description", "")
+    name = info.get("name", "API")
+    
+    # Split by ## headers
+    sections = description.split("## ")
+    
+    for section in sections:
+        if not section.strip():
+            continue
+        
+        # Get section title (first line)
+        lines = section.strip().split("\n")
+        section_title = lines[0].strip()
+        section_content = "\n".join(lines[1:]).strip()
+        
+        if section_content:
+            documents.append(Document(
+                page_content=f"# {name} - {section_title}\n\n{section_content}",
+                metadata={
+                    "type": "overview",
+                    "name": f"{name} - {section_title}",
+                    "section": section_title
+                }
+            ))
+    
+    return documents
 
 def extract_endpoints(item, path=""):
     """Recursively extract endpoints from Postman collection."""
@@ -126,13 +155,7 @@ def main():
     documents = []
     info = collection.get("info", {})
     if info.get("description"):
-        documents.append(Document(
-            page_content=f"# {info.get('name', 'API')}\n\n{info['description']}",
-            metadata={
-                "type": "overview",
-                "name": info.get("name", "API Overview")
-            }
-        ))
+        documents.extend(split_overview(info))
     
     # Extract all endpoints
     items = collection.get("item", [])
